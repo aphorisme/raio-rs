@@ -1,0 +1,10 @@
+[package]
+name = "raio"
+version = "0.1.0"
+authors = ["Philipp Pfeiffer <pfiff@posteo.de>"]
+edition = "2018"
+
+[dependencies]
+byteorder = "*"
+newtype_derive = "*"
+custom_derive = "*"
