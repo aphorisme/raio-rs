@@ -1,55 +1,32 @@
-use crate::packing::error::{PackError, UnpackError};
-use crate::packing::ll::{
-    read_expected_marker, BoltRead, BoltReadable, BoltWrite, BoltWriteable, MarkerByte,
-    UnboundPackable, UnboundUnpackable, WResult,
-};
 use std::io;
-use std::io::Write;
-use std::ops::{Deref, DerefMut};
 
-pub struct Fixed<I>(I);
+use crate::packing::error::{PackError, UnpackError};
+use crate::packing::ll::{BoltRead, BoltReadable, BoltWrite, BoltWriteable, MarkerByte, WResult};
 
-impl<I> Deref for Fixed<I> {
-    type Target = I;
-    fn deref(&self) -> &I {
-        &self.0
+pub trait FixedPackableAs {
+    fn as_fixed_to<T: BoltWrite>(&self, marker_byte: MarkerByte, buf: &mut T)
+        -> WResult<PackError>;
+}
+
+impl<U: BoltWriteable<Error = io::Error> + Copy> FixedPackableAs for U {
+    fn as_fixed_to<T: BoltWrite>(
+        &self,
+        marker_byte: MarkerByte,
+        buf: &mut T,
+    ) -> Result<usize, PackError> {
+        Ok(marker_byte.bolt_write_to(buf)? + self.bolt_write_to(buf)?)
     }
 }
 
-impl<I> DerefMut for Fixed<I> {
-    fn deref_mut(&mut self) -> &mut I {
-        &mut self.0
-    }
+pub trait FixedUnpackableAs
+where
+    Self: Sized,
+{
+    fn fixed_body_from<T: BoltRead>(buf: &mut T) -> Result<Self, UnpackError>;
 }
 
-impl<I> Fixed<I> {
-    pub fn into_inner(self) -> I {
-        self.0
-    }
-
-    pub fn write_header<T: Write>(buf: &mut T, marker: MarkerByte) -> WResult<io::Error> {
-        marker.bolt_write_to(buf)
-    }
-}
-
-impl<I: BoltReadable<Error = io::Error>> UnboundUnpackable for Fixed<I> {
-    type Marker = MarkerByte;
-    fn unpack_as_from<T: BoltRead>(marker: MarkerByte, buf: &mut T) -> Result<Self, UnpackError> {
-        let _: MarkerByte = read_expected_marker(marker, buf)?;
-        let inner = buf.bolt_read::<I>()?;
-        Ok(Fixed(inner))
-    }
-}
-
-impl<I: BoltWriteable<Error = io::Error>> UnboundPackable for Fixed<I> {
-    type Marker = MarkerByte;
-    fn pack_as_to<T: BoltWrite>(self, marker: MarkerByte, buf: &mut T) -> WResult<PackError> {
-        Ok(buf.bolt_write(marker)? + buf.bolt_write(self.0)?)
-    }
-}
-
-impl<I> From<I> for Fixed<I> {
-    fn from(input: I) -> Fixed<I> {
-        Fixed(input)
+impl<U: BoltReadable<Error = io::Error>> FixedUnpackableAs for U {
+    fn fixed_body_from<T: BoltRead>(buf: &mut T) -> Result<Self, UnpackError> {
+        Ok(<U>::bolt_read_from(buf)?)
     }
 }

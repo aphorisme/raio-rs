@@ -1,134 +1,105 @@
-use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::io::Write;
-use std::num::TryFromIntError;
-use std::{fmt, io};
 
-use crate::packing::error::{ConversionError, PackError, UnpackError};
+use crate::packing::error::{PackError, UnpackError};
 use crate::packing::ll::{
-    combine_nibble, read_expected_marker, BoltRead, BoltReadable, BoltWrite, BoltWriteable,
-    MarkerByte, TinySizeMarker, UnboundPackable, UnboundUnpackable, WResult,
+    BoltRead, BoltWrite, BoltWriteable, MarkerByte, TinySizeMarker, ValueMap, WResult,
 };
-use byteorder::WriteBytesExt;
+use crate::packing::{Packable, Unpackable, ValueList};
 
-const TINY_SIZE_MAX: u8 = 0x0F;
+pub const TINY_SIZE_MAX: u8 = 0x0F;
 
-pub struct TinySized<I> {
-    tiny_size: u8,
-    inner: I,
-}
-
-impl<I> TinySized<I> {
-    pub fn size(&self) -> u8 {
-        self.tiny_size
-    }
-
-    pub fn into_inner(self) -> I {
-        self.inner
-    }
-
-    pub fn inner_ref(&self) -> &I {
-        &self.inner
-    }
-
-    pub fn inner_mut_ref(&mut self) -> &mut I {
-        &mut self.inner
-    }
-
-    pub fn write_header<T: Write>(&self, buf: &mut T, marker: MarkerByte) -> WResult<io::Error> {
-        buf.write_u8(combine_nibble(marker as u8, self.tiny_size))?;
-        Ok(1)
-    }
-}
-
-impl<I: BoltWriteable> TinySized<I> {
-    pub fn write_body<T: BoltWrite>(self, buf: &mut T) -> WResult<<I as BoltWriteable>::Error> {
-        buf.bolt_write::<I>(self.inner)
-    }
-}
-
-impl<I: BoltReadable<Error = io::Error>> TinySized<I> {
-    pub fn read_body<T: BoltRead>(
-        marker: TinySizeMarker,
+pub trait TinySizedPackableAs {
+    fn as_tiny_sized_to<T: BoltWrite>(
+        &self,
+        marker_byte: MarkerByte,
         buf: &mut T,
-    ) -> Result<TinySized<I>, io::Error> {
-        let inner = buf.bolt_read_exact::<I>(marker.tiny_size as u64)?;
-        Ok(TinySized {
-            tiny_size: marker.tiny_size,
-            inner,
-        })
+    ) -> WResult<PackError>;
+}
+
+impl TinySizedPackableAs for String {
+    fn as_tiny_sized_to<T: BoltWrite>(
+        &self,
+        marker_byte: MarkerByte,
+        buf: &mut T,
+    ) -> Result<usize, PackError> {
+        let size: u8 =
+            <u8>::try_from(self.len()).map_err(|_| PackError::GenericTooLarge("String"))?;
+        if size <= TINY_SIZE_MAX {
+            let written = TinySizeMarker::new(marker_byte, size).bolt_write_to(buf)?
+                + self.bolt_write_to(buf)?;
+            Ok(written)
+        } else {
+            Err(PackError::GenericTooLarge("String"))
+        }
     }
 }
 
-impl<E, I: BoltWriteable<Error = E>> UnboundPackable for TinySized<I>
+impl<V: Packable> TinySizedPackableAs for ValueList<V> {
+    fn as_tiny_sized_to<T: BoltWrite>(
+        &self,
+        marker_byte: MarkerByte,
+        buf: &mut T,
+    ) -> Result<usize, PackError> {
+        let size: u8 =
+            <u8>::try_from(self.len()).map_err(|_| PackError::GenericTooLarge("ValueList"))?;
+        if size <= TINY_SIZE_MAX {
+            let mut written = TinySizeMarker::new(marker_byte, size).bolt_write_to(buf)?;
+
+            for v in &self.0 {
+                written += v.pack_to(buf)?;
+            }
+
+            Ok(written)
+        } else {
+            Err(PackError::GenericTooLarge("ValueList"))
+        }
+    }
+}
+
+impl<V: Packable> TinySizedPackableAs for ValueMap<V> {
+    fn as_tiny_sized_to<T: BoltWrite>(
+        &self,
+        marker_byte: MarkerByte,
+        buf: &mut T,
+    ) -> Result<usize, PackError> {
+        let size: u8 =
+            <u8>::try_from(self.len()).map_err(|_| PackError::GenericTooLarge("ValueMap"))?;
+        if size <= TINY_SIZE_MAX {
+            let mut written = TinySizeMarker::new(marker_byte, size).bolt_write_to(buf)?;
+
+            for (k, v) in &self.0 {
+                written += k.pack_to(buf)?;
+                written += v.pack_to(buf)?;
+            }
+
+            Ok(written)
+        } else {
+            Err(PackError::GenericTooLarge("ValueMap"))
+        }
+    }
+}
+
+pub trait TinySizedUnpackableAs
 where
-    PackError: From<E>,
+    Self: Sized,
 {
-    type Marker = TinySizeMarker;
-    fn pack_as_to<T: BoltWrite>(self, marker: MarkerByte, buf: &mut T) -> WResult<PackError> {
-        let written = TinySizeMarker {
-            marker,
-            tiny_size: self.tiny_size,
-        }
-        .bolt_write_to(buf)?
-            + self.inner.bolt_write_to(buf)?;
-        Ok(written)
+    fn tiny_sized_body_from<T: BoltRead>(size: u8, buf: &mut T) -> Result<Self, UnpackError>;
+}
+
+impl TinySizedUnpackableAs for String {
+    fn tiny_sized_body_from<T: BoltRead>(size: u8, buf: &mut T) -> Result<Self, UnpackError> {
+        Ok(buf.bolt_read_exact(size as u64)?)
     }
 }
 
-impl<I: BoltReadable<Error = io::Error>> UnboundUnpackable for TinySized<I> {
-    type Marker = TinySizeMarker;
-    fn unpack_as_from<T: BoltRead>(marker: MarkerByte, buf: &mut T) -> Result<Self, UnpackError> {
-        let marker: TinySizeMarker = read_expected_marker(marker, buf)?;
-        let inner = buf.bolt_read_exact(marker.tiny_size as u64)?;
-        Ok(TinySized {
-            tiny_size: marker.tiny_size,
-            inner,
-        })
+impl<I: Unpackable> TinySizedUnpackableAs for ValueList<I> {
+    fn tiny_sized_body_from<T: BoltRead>(size: u8, buf: &mut T) -> Result<Self, UnpackError> {
+        ValueList::unpack_body(size as usize, buf)
     }
 }
 
-impl TryFrom<String> for TinySized<String> {
-    type Error = ConversionError;
-    fn try_from(input: String) -> Result<Self, Self::Error> {
-        let u = u8::try_from(input.len())?;
-        if u <= TINY_SIZE_MAX {
-            Ok(TinySized {
-                tiny_size: u,
-                inner: input,
-            })
-        } else {
-            Err(ConversionError::SourceTooLarge)
-        }
-    }
-}
-
-impl<V> TryFrom<Vec<V>> for TinySized<Vec<V>> {
-    type Error = ConversionError;
-    fn try_from(input: Vec<V>) -> Result<Self, Self::Error> {
-        let u: u8 = u8::try_from(input.len())?;
-        if u <= TINY_SIZE_MAX {
-            Ok(TinySized {
-                tiny_size: u,
-                inner: input,
-            })
-        } else {
-            Err(ConversionError::SourceTooLarge)
-        }
-    }
-}
-
-impl<V, K> TryFrom<HashMap<K, V>> for TinySized<HashMap<K, V>> {
-    type Error = ConversionError;
-    fn try_from(input: HashMap<K, V>) -> Result<Self, Self::Error> {
-        let u: u8 = u8::try_from(input.len())?;
-        if u <= TINY_SIZE_MAX {
-            Ok(TinySized {
-                tiny_size: u,
-                inner: input,
-            })
-        } else {
-            Err(ConversionError::SourceTooLarge)
-        }
+impl<I: Unpackable> TinySizedUnpackableAs for ValueMap<I> {
+    fn tiny_sized_body_from<T: BoltRead>(size: u8, buf: &mut T) -> Result<Self, UnpackError> {
+        ValueMap::unpack_body(size as usize, buf)
     }
 }

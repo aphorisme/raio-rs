@@ -1,10 +1,11 @@
-use crate::packing::ll::{UnknownSignatureError, Signature};
 use std::fmt;
+
+use crate::packing::ll::{Signature, UnknownSignatureError};
 
 #[derive(Debug)]
 pub enum BoltReadSignatureError {
     SignatureParseError(UnknownSignatureError),
-    UnexpectedSignatureError(Signature),
+    UnexpectedSignatureError(Signature, Signature),
     ReadIOError(std::io::Error),
 }
 
@@ -15,9 +16,11 @@ impl fmt::Display for BoltReadSignatureError {
                 write!(f, "Signature parsing error: {}", e)
             }
             BoltReadSignatureError::ReadIOError(e) => write!(f, "IO reading error: {}", e),
-            BoltReadSignatureError::UnexpectedSignatureError(sig) => {
-                write!(f, "Unexpected signature found: {:?}", sig)
-            }
+            BoltReadSignatureError::UnexpectedSignatureError(exp, found) => write!(
+                f,
+                "Unexpected signature found: {:?}, expected: {:?}",
+                found, exp
+            ),
         }
     }
 }

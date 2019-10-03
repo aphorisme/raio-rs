@@ -1,5 +1,6 @@
-use crate::packing::ll::{MarkerByte, UnknownMarkerError};
 use std::fmt;
+
+use crate::packing::ll::{MarkerByte, UnknownMarkerError};
 
 #[derive(Debug)]
 pub enum BoltReadMarkerError {

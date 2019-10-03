@@ -1,6 +1,3 @@
-// Denotes the magic number used in the handshake.
-pub const MAGIC_NUMBER: [u8; 4] = [0x60, 0x60, 0xB0, 0x17];
-
 /// Combines the higher nibble and the lower nibble of two `u8`.
 /// # Example
 /// ```

@@ -1,5 +1,7 @@
-use crate::packing::error::{BoltReadMarkerError, BoltReadSignatureError};
 use std::{fmt, io};
+
+use crate::packing::error::{BoltReadMarkerError, BoltReadSignatureError};
+use crate::packing::ll::{MarkerByte, Signature, UnknownMarkerError, UnknownSignatureError};
 
 #[derive(Debug)]
 pub enum UnpackError {
@@ -7,6 +9,9 @@ pub enum UnpackError {
     MarkerReadError(BoltReadMarkerError),
     SignatureReadError(BoltReadSignatureError),
     UnexpectedSignatureSize(u8, u8),
+    UnexpectedMarker(MarkerByte, &'static str),
+    UnexpectedSignature(Signature, &'static str),
+    SizeConversionError,
 }
 
 impl fmt::Display for UnpackError {
@@ -20,6 +25,19 @@ impl fmt::Display for UnpackError {
                 "Unexpected signature size. Expected: {}, actual: {}",
                 exp, act
             ),
+            UnpackError::UnexpectedMarker(m, from) => write!(
+                f,
+                "Unexpected marker '{:?}' found while try to read '{}'",
+                m, from
+            ),
+            UnpackError::UnexpectedSignature(sig, from) => write!(
+                f,
+                "Unexpected signature '{:?}' found while try to read '{}'",
+                sig, from
+            ),
+            UnpackError::SizeConversionError => {
+                write!(f, "Conversion from read size not possible.")
+            }
         }
     }
 }
@@ -31,6 +49,9 @@ impl std::error::Error for UnpackError {
             UnpackError::MarkerReadError(e) => Some(e),
             UnpackError::SignatureReadError(e) => Some(e),
             UnpackError::UnexpectedSignatureSize(_, _) => None,
+            UnpackError::UnexpectedMarker(_, _) => None,
+            UnpackError::UnexpectedSignature(_, _) => None,
+            UnpackError::SizeConversionError => None,
         }
     }
 }
@@ -50,5 +71,17 @@ impl From<BoltReadMarkerError> for UnpackError {
 impl From<BoltReadSignatureError> for UnpackError {
     fn from(input: BoltReadSignatureError) -> UnpackError {
         UnpackError::SignatureReadError(input)
+    }
+}
+
+impl From<UnknownMarkerError> for UnpackError {
+    fn from(input: UnknownMarkerError) -> UnpackError {
+        UnpackError::MarkerReadError(BoltReadMarkerError::MarkerParseError(input))
+    }
+}
+
+impl From<UnknownSignatureError> for UnpackError {
+    fn from(input: UnknownSignatureError) -> Self {
+        UnpackError::SignatureReadError(BoltReadSignatureError::SignatureParseError(input))
     }
 }

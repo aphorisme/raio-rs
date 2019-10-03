@@ -13,8 +13,10 @@ use crate::packing::ll::{combine_nibble, high_nibble, low_nibble, BoltReadable, 
 /// to a `MarkerByte`, but a `TryFrom<u8>` implementation is given.
 pub enum MarkerByte {
     // tiny:
-    PlusTinyInt = 0x00,  // 1 to 127 (up to 0x7F)
-    MinusTinyInt = 0xF0, // -1 to -16
+    PlusTinyInt = 0x00,
+    // 1 to 127 (up to 0x7F)
+    MinusTinyInt = 0xF0,
+    // -1 to -16
     TinyString = 0x80,
     TinyList = 0x90,
     TinyMap = 0xA0,
@@ -149,36 +151,35 @@ fn from_high_nibble(input: u8) -> Result<MarkerByte, UnknownMarkerError> {
 impl BoltWriteable for MarkerByte {
     type Error = std::io::Error;
     fn bolt_write_to<T: Write>(self, buf: &mut T) -> Result<usize, Self::Error> {
-        buf.write(&[self as u8])?;
-        Ok(1)
+        buf.write(&[self as u8])
     }
 }
 
-/// The `BoltRead` implementation for `Marker` uses the `TryFrom<u8>`
+/// The `BoltRead` implementation for `MarkerByte` uses the `TryFrom<u8>`
 /// implementation of it. This means, that for example `[0x8C]` is read
-/// as `TinyString` but written again as `[0x80]` and hence `write_bolt_into`
-/// is not an left-inverse for `read_bolt` in this case.
+/// as `TinyString` but written again as `[0x80]` and hence `bolt_write_to`
+/// is not an left-inverse for `bolt_read_from` in this case.
 /// ```
 /// use raio::packing::ll::*;
 ///
 /// // define marker with size:
 /// let tiny_string_marker = combine_nibble(MarkerByte::TinyString as u8, 12);
-/// let mut c = std::io::Cursor::new(vec![tiny_string_marker]);
+/// let mut c : &[u8] = &vec![tiny_string_marker];
 ///
 /// // read that marker:
-/// let marker : Marker = MarkerByte::read_bolt(&mut c).unwrap();
+/// let marker = MarkerByte::bolt_read_from(&mut c).unwrap();
 /// assert_eq!(marker, MarkerByte::TinyString);
 ///
 /// // now, this written is just `0x80`:
 /// let mut v : Vec<u8> = Vec::with_capacity(1);
-/// marker.write_bolt_into(&mut v).unwrap();
+/// v.bolt_write(marker).unwrap();
 /// assert_eq!(v[0], 0x80);
 /// ```
 impl BoltReadable for MarkerByte {
     type Error = BoltReadMarkerError;
     fn bolt_read_from<T: Read>(buf: &mut T) -> Result<Self, Self::Error> {
         let mut b: [u8; 1] = [0; 1];
-        buf.read(&mut b)?;
+        buf.read_exact(&mut b)?;
         MarkerByte::try_from(b[0]).map_err(|e| e.into())
     }
 }
@@ -187,11 +188,58 @@ impl BoltReadable for MarkerByte {
 /// Some header bytes are marker as well as size information in one byte,
 /// where the high nibble of the byte stands for the marker and the low nibble
 /// is an encoded size information. This type represents these kind of
-/// `marker`. Their implementations of `BoltRead` and `BoltWrite` provide a
+/// `marker`. Their implementations of `BoltReadable`and `BoltWriteable` provide a
 /// useful alternative.
+/// ```
+/// use raio::packing::ll::*;
+///
+/// // write a simple tiny size marker into a vector:
+/// let mut ts_marker_data : Vec<u8> = Vec::with_capacity(1);
+/// ts_marker_data.bolt_write(
+///     TinySizeMarker { marker: MarkerByte::TinyString , tiny_size : 14 }
+/// ).unwrap();
+///
+/// // and read its data as a normal `MarkerByte`:
+/// let ts_marker = MarkerByte::bolt_read_from(&mut ts_marker_data.as_slice()).unwrap();
+/// assert_eq!(MarkerByte::TinyString, ts_marker);
+///
+/// // as well as a `TinySizeMarker`:
+/// let ts_marker = TinySizeMarker::bolt_read_from(&mut ts_marker_data.as_slice()).unwrap();
+/// assert_eq!(MarkerByte::TinyString, ts_marker.marker);
+/// assert_eq!(14, ts_marker.tiny_size);
+/// ```
+///
+/// # Guarantees
+/// It is guaranteed that `tiny_size` is `<= 15`, since the size part is read out of the low nibble
+/// of the byte, hence the range is from `0x00` to `0x0F`.
+///
+/// It is **not** guaranteed that the read marker is any `TinyFoo` marker. But therefore it is always
+/// possible to read out a `TinySizeMarker` where a `MarkerByte` was written before.
+/// ```
+/// use raio::packing::ll::*;
+///
+/// // write `MarkerByte::String8` which is not a `Tiny` marker:
+/// let mut s8_marker_data : Vec<u8> = Vec::with_capacity(1);
+/// s8_marker_data.bolt_write(MarkerByte::String8).unwrap();
+///
+/// // now read this as a `TinySizeMarker`:
+/// let s8_tiny = TinySizeMarker::bolt_read_from(&mut s8_marker_data.as_slice()).unwrap();
+///
+/// // this is valid:
+/// assert_eq!(s8_tiny, TinySizeMarker { marker: MarkerByte::String8, tiny_size : 0 });
+/// ```
 pub struct TinySizeMarker {
     pub marker: MarkerByte,
     pub tiny_size: u8,
+}
+
+impl TinySizeMarker {
+    pub fn new(marker_byte: MarkerByte, tiny_size: u8) -> TinySizeMarker {
+        TinySizeMarker {
+            marker: marker_byte,
+            tiny_size,
+        }
+    }
 }
 
 impl From<TinySizeMarker> for u8 {
@@ -208,43 +256,10 @@ impl From<TinySizeMarker> for MarkerByte {
 
 impl BoltReadable for TinySizeMarker {
     type Error = BoltReadMarkerError;
-    /// Reads in exactly one byte, parses the marker and sets the lower nibble
-    /// of the byte as its `tiny_size`.
-    /// ```
-    /// use raio::packing::ll::*;
-    /// use std::io::Cursor;
-    ///
-    /// // write a simple tiny size marker into a vector:
-    /// let mut ts_marker_data : Vec<u8> = Vec::with_capacity(1);
-    /// (TinySizeMarker { marker: MarkerByte::TinyString , tiny_size : 14 })
-    ///          .write_bolt_into(&mut ts_marker_data).unwrap();
-    ///
-    /// // and read its data as a normal `Marker`:
-    /// let mut ts_marker_cursor = Cursor::new(ts_marker_data);
-    /// let ts_marker = MarkerByte::read_bolt(&mut ts_marker_cursor).unwrap();
-    ///
-    /// assert_eq!(MarkerByte::TinyString, ts_marker);
-    /// ```
-    /// It is guaranteed that `tiny_size` is `<= 15`.
-    /// Although it is not guaranteed that the read marker is any `TinyFoo` marker.
-    /// ```
-    /// use raio::packing::ll::*;
-    /// use std::io::Cursor;
-    ///
-    /// // write `MarkerByte::String8` which is not a `Tiny` marker:
-    /// let mut s8_marker_data : Vec<u8> = Vec::with_capacity(1);
-    /// MarkerByte::String8.write_bolt_into(&mut s8_marker_data).unwrap();
-    ///
-    /// // now read this as a `TinySizeMarker`:
-    /// let mut s8_marker_cursor = Cursor::new(s8_marker_data);
-    /// let s8_tiny : TinySizeMarker = TinySizeMarker::read_bolt(&mut s8_marker_cursor).unwrap();
-    ///
-    /// // this is valid:
-    /// assert_eq!(s8_tiny, TinySizeMarker { marker: MarkerByte::String8, tiny_size : 0 });
-    /// ```
+
     fn bolt_read_from<T: Read>(buf: &mut T) -> Result<Self, Self::Error> {
         let mut b: [u8; 1] = [0; 1];
-        buf.read(&mut b)?;
+        buf.read_exact(&mut b)?;
         let m = MarkerByte::try_from(b[0]).map_err(|e| -> BoltReadMarkerError { e.into() })?;
         Ok(TinySizeMarker {
             marker: m,
@@ -268,8 +283,7 @@ impl BoltWriteable for TinySizeMarker {
     type Error = std::io::Error;
     fn bolt_write_to<T: Write>(self, buf: &mut T) -> Result<usize, Self::Error> {
         let u = combine_nibble(self.marker as u8, self.tiny_size);
-        buf.write(&[u])?;
-        Ok(1)
+        buf.write(&[u])
     }
 }
 
@@ -291,15 +305,36 @@ impl MarkerType for TinySizeMarker {
     }
 }
 
-/// Tries to read a `Marker` out of a `Read` and checks, if it validates the
-/// expected.
-pub fn read_expected_marker<E, M: MarkerType + BoltReadable<Error = E>, T: Read>(
+/// Tries to read a `MarkerType` out of a `Read` and checks, if it validates the
+/// expected. This is possible for all `MarkerType`.
+/// ```
+/// use raio::packing::ll::*;
+/// use std::convert::TryFrom;
+/// use raio::packing::error::BoltReadMarkerError;
+/// use raio::packing::error::UnpackError::UnexpectedMarker;
+///
+/// let mut m_data : &[u8] =
+///     &vec!(u8::try_from(
+///         TinySizeMarker {
+///             tiny_size: 14,
+///             marker: MarkerByte::TinyString,
+///         }).unwrap());
+///
+/// // read marker as expected, one gets the marker:
+/// let marker : TinySizeMarker = read_expected_marker(MarkerByte::TinyString, &mut m_data.clone()).unwrap();
+/// assert_eq!(MarkerByte::TinyString, marker.marker);
+/// assert_eq!(14, marker.tiny_size);
+///
+/// // otherwise an error is returned:
+/// let err = read_expected_marker::<TinySizeMarker, &[u8]>(MarkerByte::TinyList, &mut m_data).err().unwrap();
+/// assert_eq!(
+///     BoltReadMarkerError::UnexpectedMarker(MarkerByte::TinyList, MarkerByte::TinyString).to_string(),
+///     err.to_string());
+/// ```
+pub fn read_expected_marker<M: MarkerType + BoltReadable<Error = BoltReadMarkerError>, T: Read>(
     expected: MarkerByte,
     buf: &mut T,
-) -> Result<M, BoltReadMarkerError>
-where
-    BoltReadMarkerError: From<E>,
-{
+) -> Result<M, BoltReadMarkerError> {
     let m: M = <M>::bolt_read_from(buf)?;
     if m.validates(expected) {
         Ok(m)

@@ -1,7 +1,11 @@
-use byteorder::*;
 use std::io;
 use std::io::Read;
 
+use byteorder::*;
+
+/// Provides a unified way to write data in a protocol compliant way. This does not give any
+/// guarantees besides that any data written with `bolt_read_from` can be recovered by a bolt
+/// agent, if known which type it was.
 pub trait BoltReadable
 where
     Self: Sized,
@@ -75,6 +79,7 @@ impl BoltReadable for f64 {
     }
 }
 
+/// Convenience trait to extend `Read` with `BoltReadable` capacity.
 pub trait BoltRead: Read
 where
     Self: Sized,
@@ -87,3 +92,5 @@ where
         T::bolt_read_from(&mut self.take(len))
     }
 }
+
+impl<T: Read> BoltRead for T {}

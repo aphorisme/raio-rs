@@ -1,10 +1,14 @@
 use std::convert::{Into, TryFrom};
-use std::io::{Read, Write};
 use std::ops::Deref;
 
-use crate::packing::error::ConversionError;
-use crate::packing::ll::TinySizeMarker;
-use crate::packing::{pack::*, unpack::*};
+use byteorder::ReadBytesExt;
+
+use crate::packing::error::{BoltReadMarkerError, ConversionError, PackError, UnpackError};
+use crate::packing::ll::{
+    read_expected_marker, BoltRead, BoltWrite, BoltWriteable, MarkerByte, TinySizeMarker,
+    UnknownMarkerError,
+};
+use crate::packing::{Packable, Unpackable};
 
 pub const MAX_PLUS_TINY_INT: u8 = 0x7F;
 pub const MIN_MINUS_TINY_INT: i8 = -16;
@@ -12,11 +16,13 @@ pub const MIN_MINUS_TINY_INT: i8 = -16;
 // --------------------------
 // PLUSTINYINT
 // --------------------------
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// The `PlusTinyInt` type covers integers from `0` to `127` and consists
 /// in byte representation just of the number. Use the `From` and `TryFrom`
-/// implementations to convert to and from the type.
+/// implementations to convert from and to the type.
 /// ```
-/// use raio::packing::types::*;
+/// use raio::packing::*;
 /// use std::convert::TryFrom;
 ///
 /// assert_eq!(<u8>::from(<PlusTinyInt>::try_from(127).unwrap()), 127);
@@ -26,8 +32,17 @@ pub const MIN_MINUS_TINY_INT: i8 = -16;
 /// // lower bound:
 /// assert!(<PlusTinyInt>::try_from(0).is_ok());
 /// ```
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct PlusTinyInt(u8);
+
+impl PlusTinyInt {
+    /// # Safety
+    /// Creating a new `PlusTinyInt` is safe whenever using the `TryFrom` trait. Using `new_unchecked`
+    /// is a shortcut which wraps a `u8` just into a `PlusTinyInt`. This is a safe operation for all
+    /// `u: u8` with `u <= MAX_PLUS_TINY_INT`.
+    pub unsafe fn new_unchecked(from: u8) -> PlusTinyInt {
+        PlusTinyInt(from)
+    }
+}
 
 impl TryFrom<u8> for PlusTinyInt {
     type Error = ConversionError;
@@ -37,6 +52,14 @@ impl TryFrom<u8> for PlusTinyInt {
         } else {
             Err(ConversionError::SourceTooLarge)
         }
+    }
+}
+
+impl TryFrom<i32> for PlusTinyInt {
+    type Error = ConversionError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Self::try_from(i64::from(value))
     }
 }
 
@@ -55,10 +78,33 @@ impl TryFrom<i64> for PlusTinyInt {
     }
 }
 
+impl From<PlusTinyInt> for u8 {
+    fn from(input: PlusTinyInt) -> u8 {
+        input.0
+    }
+}
+
 impl Deref for PlusTinyInt {
     type Target = u8;
     fn deref(&self) -> &u8 {
         &self.0
+    }
+}
+
+impl Packable for PlusTinyInt {
+    fn pack_to<T: BoltWrite>(&self, buf: &mut T) -> Result<usize, PackError> {
+        Ok(self.0.bolt_write_to(buf)?)
+    }
+}
+
+impl Unpackable for PlusTinyInt {
+    fn unpack_from<T: BoltRead>(buf: &mut T) -> Result<Self, UnpackError> {
+        let u = buf.read_u8()?;
+        PlusTinyInt::try_from(u).map_err(|_| {
+            UnpackError::MarkerReadError(BoltReadMarkerError::MarkerParseError(
+                UnknownMarkerError { read_byte: u },
+            ))
+        })
     }
 }
 
@@ -71,7 +117,7 @@ impl Deref for PlusTinyInt {
 /// high nibble is the marker. Use the `TryFrom` and `From` implementations
 /// to convert into and from the type.
 /// ```
-/// use raio::packing::types::*;
+/// use raio::packing::*;
 /// use std::convert::TryFrom;
 ///
 /// assert_eq!(<i8>::from(<MinusTinyInt>::try_from(-16).unwrap()), -16);
@@ -87,6 +133,17 @@ impl Deref for PlusTinyInt {
 /// to `0x0F` standing for the integers `-1` to `-16`.
 pub struct MinusTinyInt(u8);
 
+impl MinusTinyInt {
+    /// # Safety
+    /// Using the `TryFrom` trait to create a `MinusTinyInt` is safe. Using `new_unchecked` should
+    /// be used carefully. What needs to happen is a mapping where `-1` is mapped to `0x00: u8`
+    /// and from there up to `-16` is mapped to `0x0F: u8`. So, whenever the input `i` has `-17 < i < 0`
+    /// then `((-i) - 1) as u8` is the correct value for `new_unchecked`.
+    pub unsafe fn new_unchecked(from: u8) -> MinusTinyInt {
+        MinusTinyInt(from)
+    }
+}
+
 impl From<MinusTinyInt> for i8 {
     fn from(input: MinusTinyInt) -> i8 {
         let MinusTinyInt(u) = input;
@@ -99,7 +156,7 @@ impl TryFrom<i8> for MinusTinyInt {
     fn try_from(input: i8) -> Result<Self, Self::Error> {
         if input >= MIN_MINUS_TINY_INT {
             if input < 0 {
-                Ok(MinusTinyInt(((-1) * input - 1) as u8))
+                Ok(MinusTinyInt((-input - 1) as u8))
             } else {
                 Err(ConversionError::SourceTooLarge)
             }
@@ -109,12 +166,19 @@ impl TryFrom<i8> for MinusTinyInt {
     }
 }
 
+impl TryFrom<i32> for MinusTinyInt {
+    type Error = ConversionError;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Self::try_from(i64::from(value))
+    }
+}
+
 impl TryFrom<i64> for MinusTinyInt {
     type Error = ConversionError;
     fn try_from(input: i64) -> Result<Self, Self::Error> {
         if input >= MIN_MINUS_TINY_INT.into() {
             if input < 0 {
-                Ok(MinusTinyInt(((-1) * input - 1) as u8))
+                Ok(MinusTinyInt((-input - 1) as u8))
             } else {
                 Err(ConversionError::SourceTooLarge)
             }
@@ -127,5 +191,22 @@ impl TryFrom<i64> for MinusTinyInt {
 impl From<MinusTinyInt> for i64 {
     fn from(input: MinusTinyInt) -> i64 {
         i64::from(i8::from(input))
+    }
+}
+
+impl Packable for MinusTinyInt {
+    fn pack_to<T: BoltWrite>(&self, buf: &mut T) -> Result<usize, PackError> {
+        Ok(TinySizeMarker {
+            marker: MarkerByte::MinusTinyInt,
+            tiny_size: self.0,
+        }
+        .bolt_write_to(buf)?)
+    }
+}
+
+impl Unpackable for MinusTinyInt {
+    fn unpack_from<T: BoltRead>(buf: &mut T) -> Result<Self, UnpackError> {
+        let m: TinySizeMarker = read_expected_marker(MarkerByte::MinusTinyInt, buf)?;
+        Ok(MinusTinyInt(m.tiny_size))
     }
 }

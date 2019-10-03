@@ -1,12 +1,16 @@
-use crate::packing::ll::{BoltReadable, BoltWriteable};
-use byteorder::ReadBytesExt;
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Read, Write};
+
+use byteorder::ReadBytesExt;
+
 use crate::packing::error::BoltReadSignatureError;
+use crate::packing::ll::{BoltReadable, BoltWriteable};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Type for all known struct signatures. Signatures for value structs as well as signatures for
+/// message structs are part of this type.
 pub enum Signature {
     // value structs:
     Node = 0x4E,
@@ -28,15 +32,33 @@ pub enum Signature {
 }
 
 impl Signature {
-    pub fn validates(&self, sig: Signature) -> bool {
-        *self == sig
+    pub fn validates(self, sig: Signature) -> bool {
+        self == sig
     }
+    /// Similar to `read_expected_marker` but with a `Signature`.
+    /// ```
+    /// use raio::packing::ll::*;
+    /// use raio::packing::error::BoltReadSignatureError;
+    ///
+    /// let mut sig_data : &[u8] = &vec!(Signature::Node as u8);
+    ///
+    /// // if expected is read, this returns the signature:
+    /// let sig = Signature::Node.read_expected(&mut sig_data.clone()).unwrap();
+    /// assert_eq!(sig, Signature::Node);
+    ///
+    /// // otherwise an error is returned:
+    /// let err = Signature::Init.read_expected(&mut sig_data).err().unwrap();
+    /// assert_eq!(
+    ///     BoltReadSignatureError::UnexpectedSignatureError(Signature::Init, Signature::Node).to_string(),
+    ///     err.to_string()
+    /// );
+    /// ```
     pub fn read_expected<T: Read>(self, buf: &mut T) -> Result<Signature, BoltReadSignatureError> {
         let sig: Signature = Signature::bolt_read_from(buf)?;
         if sig.validates(self) {
             Ok(sig)
         } else {
-            Err(BoltReadSignatureError::UnexpectedSignatureError(sig))
+            Err(BoltReadSignatureError::UnexpectedSignatureError(self, sig))
         }
     }
 }

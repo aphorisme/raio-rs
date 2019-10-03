@@ -6,5 +6,4 @@ edition = "2018"
 
 [dependencies]
 byteorder = "*"
-newtype_derive = "*"
-custom_derive = "*"
+mio = "*"
