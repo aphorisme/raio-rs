@@ -3,7 +3,10 @@ name = "raio"
 version = "0.1.0"
 authors = ["Philipp Pfeiffer <pfiff@posteo.de>"]
 edition = "2018"
+description = "A neo4j+bolt driver written in Rust."
+license = "MIT"
+homepage = "https://github.com/aphorisme/raio-rs/README.md"
+repository = "https://github.com/aphorisme/raio-rs.git"
 
 [dependencies]
-byteorder = "*"
-mio = "*"
+byteorder = "^1.3.2"

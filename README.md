@@ -1,3 +1,32 @@
+# Overview
+
+This package is a **Work-In-Progress** bolt driver for neo4j. Since I need a way
+to interact with neo4j from rust, I've written this driver and as such, it is as
+minimal as possible to make it usable. It can open a connection to neo4j and run
+cypher queries.
+
+The plan is to grow this package into some mature bolt driver by implementing more
+features as I need them in my other projects.
+
+If you want to contribute, you can! Either by requesting features or even better: by 
+providing pull requests (don't forget to rebase). Design is discussable.
+
+## TODO
+
+☐ Documentation: general.
+
+☐ Inline documentation and tests.
+
+☐ Integration Tests, maybe using `boltkit`.
+  
+☐ Version 3 Bolt types: `DateTime`, etc.
+
+☐ More advanced synchronous client: `Commit`, `Rollback`, `Transaction`.
+
+☐ Split client in `Driver` and multi-thread-safe `Session` to allow several `Sessions` in parallel.
+
+☐ Asynchronous client?
+
 # Framework Ideas
 
 The package comes in two parts: a mere `packing` part which is responsible
