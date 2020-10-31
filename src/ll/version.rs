@@ -18,6 +18,11 @@ impl Version {
         Version::new(0, 0)
     }
 
+    /// Checks if the version has no information.
+    pub fn is_empty(&self) -> bool {
+        self.min == 0 && self.maj == 0
+    }
+
     /// Encodes `Version` as needed for the bolt protocol handshake. This packs minor and major in the
     /// last two bytes and leaves the first two bytes as 0:
     /// ```

@@ -1,5 +1,6 @@
 use packs::*;
 use packs::std_structs::StdStruct;
+use crate::client::query::Query;
 
 #[derive(Debug, Clone, PartialEq, PackableStruct, Pack, Unpack)]
 #[tag = 0x01]
@@ -34,12 +35,16 @@ pub struct Reset {}
 #[tag = 0x10]
 ///  bookmarks::List<String>, tx_timeout::Integer, tx_metadata::Dictionary, mode::String, db:String)
 pub struct Run {
-   query: String,
-   parameters: Dictionary<StdStruct>,
-   extra: Dictionary<StdStruct>,
+   pub query: String,
+   pub parameters: Dictionary<StdStruct>,
+   pub extra: Dictionary<StdStruct>,
 }
 
 impl Run {
+   pub fn from_query(query: Query) -> Run {
+      query.into_run()
+   }
+   
    pub fn new(query: &str) -> Run {
       Run {
          query: String::from(query),
@@ -50,6 +55,10 @@ impl Run {
 
    pub fn param<V: Into<Value<StdStruct>>>(&mut self, param: &str, value: V){
       self.parameters.add_property(param, value);
+   }
+   
+   pub fn add_bookmarks(&mut self, bookmarks: Vec<String>) {
+       self.extra.add_property::<Value<StdStruct>>("bookmarks", bookmarks.into_iter().collect());
    }
 }
 
@@ -72,6 +81,14 @@ impl Discard {
       }
 
       Discard { extra }
+   }
+
+   pub fn all(qid: Option<i64>) -> Self {
+      Self::new(Some(-1), qid)
+   }
+
+   pub fn all_from_last() -> Self {
+      Self::new(Some(-1), Some(-1))
    }
 }
 

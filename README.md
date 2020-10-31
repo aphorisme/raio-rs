@@ -1,14 +1,15 @@
 # raio
-An async  [Bolt protocol](https://7687.org/#bolt) client implementation written in Rust 🦀.
+An opinionated async [Bolt protocol](https://7687.org/#bolt) client implementation written in Rust 🦀.
 
-| Supports Bolt Version: | 4.1 |
+| Supports Bolt Versions: | 4.1, 4.0 |
 | :----- | :---- |
 
 ⚠️ This is a rewrite of `raio-0.1.0`. There is no migration possible.
 
 ⚠️ This package has yet to proof to be largely bug free.
 
-
+⚠️ Be aware, that this package is based upon the specification and not upon
+another driver.
 
 The [packs](https://github.com/aphorisme/packs-rs) package drives the PackStream part.
 

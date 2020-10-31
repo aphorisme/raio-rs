@@ -1,16 +1,28 @@
 use packs::*;
-use packs::std_structs::StdStruct;
-use packs::value::extract_list_ref;
+use packs::std_structs::{StdStructPrimitive, StdStruct};
+use packs::value::{extract_list_ref, extract_list};
 
 #[derive(Debug, Clone, PartialEq, PackableStruct, Pack, Unpack)]
 #[tag = 0x70]
 pub struct Success {
-    pub metadata: Dictionary<StdStruct>
+    pub metadata: Dictionary<StdStructPrimitive>
 }
 
 impl Success {
     pub fn fields(&self) -> Option<Vec<&String>> {
         self.metadata.get_property("fields").and_then(extract_list_ref)
+    }
+
+    pub fn extract_fields(&mut self) -> Option<Vec<String>> {
+        self.metadata.extract_property("fields").and_then(extract_list)
+    }
+
+    pub fn bookmark(&self) -> Option<&String> {
+        self.metadata.get_property_typed("bookmark")
+    }
+
+    pub fn has_bookmark(&self) -> bool {
+        self.metadata.has_property("bookmark")
     }
 
     pub fn qid(&self) -> Option<&i64> {
@@ -35,16 +47,16 @@ pub struct Ignored {}
 #[derive(Debug, Clone, PartialEq, PackableStruct, Pack, Unpack)]
 #[tag = 0x7F]
 pub struct Failure {
-    metadata: Dictionary<StdStruct>,
+    metadata: Dictionary<StdStructPrimitive>,
 }
 
 impl Failure {
-    pub fn message(&self) -> Option<&String> {
-        self.metadata.get_property_typed("message")
+    pub fn message(&mut self) -> String {
+        self.metadata.extract_property_typed("message").unwrap_or(String::from("<unknown>"))
     }
 
-    pub fn code(&self) -> Option<&String> {
-        self.metadata.get_property_typed("code")
+    pub fn code(&mut self) -> String {
+        self.metadata.extract_property_typed("code").unwrap_or(String::from("<unknown>"))
     }
 }
 
@@ -54,7 +66,7 @@ pub struct Record {
     pub data: Vec<Value<StdStruct>>,
 }
 
-#[derive(Debug, Clone, PartialEq, PackableStructSum)]
+#[derive(Debug, Clone, PartialEq, PackableStructSum, Pack, Unpack)]
 pub enum Response {
     #[tag = 0x70]
     Success(Success),
