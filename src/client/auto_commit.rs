@@ -1,105 +1,86 @@
-use crate::client::error::ClientError;
-use crate::client::query::Query;
+use crate::messaging::request::{Run};
+use crate::messaging::commit_prepare::CommitPrepare;
+use crate::messaging::query::Query;
+use crate::messaging::bookmark::Bookmark;
 use crate::client::record_result::RecordResult;
-use crate::client::request::{Pull};
-use crate::client::response::{Response, Success};
-use crate::ll::pool::Pool;
+use crate::messaging::response::{Success, Record};
+use crate::client::error::ClientError;
+
+/// A thin wrapper around a `RUN` message in an auto-commit context. Can be used to prepare a
+/// common auto-commit, i.e. a query and a few commit options.
+/// ```
+/// # use raio::messaging::query::Query;
+/// # use raio::client::auto_commit::AutoCommit;
+/// # use raio::messaging::commit_prepare::CommitMode;
+/// let mut query = Query::new("RETURN $x as x");
+/// query.param("x", 42);
+///
+/// let mut auto_commit = AutoCommit::new(&query);
+/// auto_commit
+///     .prepare()
+///     .set_db("my_database")
+///     .set_mode(Some(CommitMode::Read))
+///     .set_timeout(Some(10));
+///
+/// assert_eq!(auto_commit.request().query, String::from("RETURN $x as x"));
+/// assert_eq!(auto_commit.request().extra.db, Some(String::from("my_database")));
+/// ```
+/// The `run` function of a [`Client`](crate::client::Client) runs an `AutoCommit`.
+pub struct AutoCommit<'a> {
+    run: Run<'a>
+}
+
+impl<'a> AutoCommit<'a> {
+    /// Creates a new `AutoCommit` out of a query. Does not set any `CommitPrepare` options like
+    /// timeout or database name.
+    pub fn new(query: &'a Query) -> Self {
+        let run = Run::new(query);
+        AutoCommit {
+            run
+        }
+    }
+
+    /// Gives access to the `CommitPrepare` of the underlying `RUN` message to set commit
+    /// settings.
+    pub fn prepare(&mut self) -> &mut CommitPrepare {
+        self.run.commit_prepare()
+    }
+
+    /// Return the `AutoCommit` as a request, which can be sent to the server.
+    pub fn request(&self) -> &Run {
+        &self.run
+    }
+}
 
 pub struct AutoCommitResult {
-    success: Success,
+    bookmark: Bookmark,
     records: Vec<RecordResult>,
-
 }
 
 impl AutoCommitResult {
-    pub fn bookmark(&self) -> &String {
-        // AutoCommitResult is created from `AutoCommit::commit` which checks if the bookmark field
-        // is set.
-        self.success.bookmark().unwrap()
+    /// Creates a new `CommitResult` from a final `SUCCESS` message, and a list of `RECORD`s.
+    pub fn new(fields: &[String], stream_end: Success, records: Vec<Record>) -> Result<Self, ClientError> {
+        let bookmark = Bookmark::from_success(stream_end)?;
+
+        // build up record results:
+        let records = RecordResult::from_results(fields, records)?;
+
+
+        Ok(AutoCommitResult {
+            bookmark,
+            records,
+        })
+    }
+
+    pub fn bookmark(&self) -> &Bookmark {
+        &self.bookmark
     }
 
     pub fn records(&self) -> &Vec<RecordResult> {
         &self.records
     }
-}
 
-pub struct AutoCommit<'pool> {
-    pool: &'pool mut Pool,
-    after_commits: Vec<String>,
-    query: Query,
-}
-
-impl<'pool> AutoCommit<'pool> {
-    pub(crate) fn create(pool: &'pool mut Pool, query: Query) -> Self {
-        AutoCommit {
-            pool,
-            after_commits: Vec::new(),
-            query,
-        }
-    }
-
-    /// Can be used to establish [Causal Consistency](https://neo4j.com/developer/kb/when-to-use-bookmarks/)
-    /// using bookmarks.
-    pub fn after(mut self, previous: &AutoCommitResult) -> Self {
-        self.after_commits.push(previous.bookmark().clone());
-        self
-    }
-
-    /// Commits the AutoCommit and consumes it. This sends a `RUN` request and receives the hole `RECORD`
-    /// stream. Requires connection resources and frees them afterwards.
-    pub async fn commit(self) -> Result<AutoCommitResult, ClientError> {
-        let mut connection = self.pool.get().await?;
-
-        // send run:
-        let mut run = self.query.into_run();
-        run.add_bookmarks(self.after_commits);
-        connection.send(run).await?;
-
-        // receive fields:
-        let fields =
-            connection
-                .recv::<Success>()
-                .await?
-                .extract_fields()
-                .ok_or(ClientError::NoFieldInformation)?;
-
-        // pull all:
-        connection.send(Pull::all_from_last()).await?;
-
-        // receive all records:
-        let mut results = Vec::new();
-        // a successful stream ends with a 'SUCCESS' which contains the bookmark of the commit
-        // or fails with an error.
-        let success =
-            loop {
-                let response = connection.recv::<Response>().await?;
-                match response {
-                    Response::Record(r) =>
-                        results.push(RecordResult::new(&fields, r)?),
-                    Response::Success(s) => {
-                        if s.has_more() {
-                            // unexpected has_more?
-                            connection.send(Pull::all_from_last()).await?;
-                        } else {
-                            break s;
-                        }
-                    }
-                    Response::Failure(mut f) =>
-                        return Err(ClientError::FailureResponse(f.code().clone(), f.message().clone())),
-                    Response::Ignored(_) =>
-                        return Err(ClientError::CommitPullIgnored)
-                }
-            };
-
-        // protocol sanity check:
-        if !success.has_bookmark() {
-            return Err(ClientError::CannotExtractBookmarkFromAutoCommit);
-        }
-
-        Ok(AutoCommitResult {
-            success,
-            records: results,
-        })
+    pub fn into_records(self) -> Vec<RecordResult> {
+        self.records
     }
 }
-

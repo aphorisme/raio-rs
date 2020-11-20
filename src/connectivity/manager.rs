@@ -1,13 +1,12 @@
-use async_std::net::{SocketAddr};
-use crate::ll::connection::{Connection, ConnectionError, ConnectionConfig, State};
+use crate::connectivity::connection::{Connection, ConnectionError, ConnectionConfig, State};
 use deadpool::managed::{RecycleResult, RecycleError};
 use async_trait::async_trait;
-use crate::ll::version::Version;
+use crate::connectivity::version::Version;
 use crate::client::auth::{AuthData, AuthMethod};
 
 /// Handles the opening and recycling of connections.
 pub struct Manager {
-    endpoint: SocketAddr,
+    endpoint: String,
     connection_config: ConnectionConfig,
     authentication: AuthData,
     agent_name: String,
@@ -16,7 +15,7 @@ pub struct Manager {
 
 impl Manager {
     pub fn new<A: AuthMethod>(
-        endpoint: SocketAddr,
+        endpoint: String,
         auth: A,
         agent_name: &str,
         agent_version: &str,
@@ -35,7 +34,7 @@ impl Manager {
 impl deadpool::managed::Manager<Connection, ConnectionError> for Manager {
     async fn create(&self) -> Result<Connection, ConnectionError> {
         // connect:
-        let mut connection = Connection::connect(self.endpoint, self.connection_config).await?;
+        let mut connection = Connection::connect(&self.endpoint, self.connection_config).await?;
 
         // handshake with fixed supported versions:
         let _ = connection.handshake(
@@ -58,7 +57,7 @@ impl deadpool::managed::Manager<Connection, ConnectionError> for Manager {
     }
 
     async fn recycle(&self, obj: &mut Connection) -> RecycleResult<ConnectionError> {
-        match obj.state {
+        match obj.state() {
             State::Ready => {
                 obj.reset().await?;
                 Ok(())

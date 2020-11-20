@@ -26,7 +26,7 @@ impl Version {
     /// Encodes `Version` as needed for the bolt protocol handshake. This packs minor and major in the
     /// last two bytes and leaves the first two bytes as 0:
     /// ```
-    /// # use raio::ll::version::Version;
+    /// # use raio::connectivity::version::Version;
     /// assert_eq!([0, 0, 1, 4], Version::new(4, 1).encode());
     /// ```
     pub fn encode(&self) -> [u8; 4] {
@@ -35,7 +35,7 @@ impl Version {
 
     /// The inverse to `encode`, reads out 4 bytes into a version:
     /// ```
-    /// # use raio::ll::version::Version;
+    /// # use raio::connectivity::version::Version;
     /// let bytes = [0, 0, 0, 3];
     /// let version = Version::decode(&bytes);
     ///

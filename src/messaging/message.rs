@@ -1,14 +1,14 @@
-use async_std::prelude::*;
+use crate::messaging::chunk::Chunk;
 use std::slice::Iter;
-use crate::ll::chunk::Chunk;
 use std::fmt::Formatter;
+use async_std::prelude::*;
 
 #[derive(Debug, Clone, PartialEq)]
 /// A `Message` is an array of bytes used to send and receive via the bolt protocol. Outside of
 /// transmitting, a message can be seen as just an array of bytes, which can be fed using
 /// [`Write`](std::io::Write) and read using [`Read`](std::io::Read):
 /// ```
-/// # use raio::ll::message::Message;
+/// # use raio::messaging::message::Message;
 /// # use std::io::{Read, Write};
 /// let mut message = Message::new_alloc(2, 5); // pre-allocates 2 chunks; maximal 5 bytes capacity per chunk.
 ///
@@ -41,7 +41,7 @@ use std::fmt::Formatter;
 /// ```
 /// use packs::*;
 /// use packs::std_structs::*;
-/// # use raio::ll::message::Message;
+/// # use raio::messaging::message::Message;
 /// # #[async_std::main]
 /// # async fn main() -> std::io::Result<()> {
 ///
@@ -120,8 +120,8 @@ impl Message {
 
     /// Returns a chunk with capacity or creates a new one.
     /// ```
-    /// # use raio::ll::message::Message;
-    /// # use std::io::Write;
+    /// # use raio::messaging::message::Message;
+    /// # use std::io::{Read, Write};
     ///
     /// // no pre allocated chunks, chunks are limited to 2 byte:
     /// let mut message = Message::new_alloc(0, 2);
@@ -166,7 +166,7 @@ impl Message {
     /// Packs chunk by chunk of a message according to the bolt specification. Each chunk is written
     /// into the writer by first encoding its size and then write out its content.
     /// ```
-    /// # use raio::ll::message::Message;
+    /// # use raio::messaging::message::Message;
     /// # use std::io::Write;
     /// # #[async_std::main]
     /// # async fn main() -> std::io::Result<()> {
@@ -189,7 +189,7 @@ impl Message {
             writer.flush().await?;
         }
 
-        writer.write(&[0, 0]).await?;
+        writer.write(&[0u8, 0u8]).await?;
         writer.flush().await?;
         Ok(2 + written)
     }

@@ -1,9 +1,9 @@
 use std::cmp::min;
-use async_std::prelude::*;
 use std::fmt::Formatter;
+use async_std::prelude::*;
 
 #[derive(Debug, Clone, PartialEq)]
-/// A `Chunk` is a part of a [`Message`](crate::ll::message::Message), with a fixed capacity.
+/// A `Chunk` is a part of a [`Message`](crate::connectivity::message::Message), with a fixed capacity.
 /// In the same sense as a `Message` can be written to and can be read from, a `Chunk` can, using
 /// `write` and `read`. In the same sense a `Chunk` can be packed and unpacked, encoding its
 /// actual size following the bolt protocol.
@@ -47,7 +47,7 @@ impl Chunk {
     /// Writes the provided bytes into the chunk and returns all bytes which
     /// are left, if any.
     /// ```
-    /// # use raio::ll::chunk::Chunk;
+    /// # use raio::messaging::chunk::Chunk;
     /// let mut chunk = Chunk::new(3);
     ///
     /// // can only write 3 bytes, one left over:
@@ -85,7 +85,7 @@ impl Chunk {
 
     /// Reads from the chunk into the buffer; returns how many bytes were read.
     /// ```
-    /// # use raio::ll::chunk::Chunk;
+    /// # use raio::messaging::chunk::Chunk;
     /// let mut chunk = Chunk::new(3);
     /// chunk.write(&[1, 2, 3]);
     ///
@@ -98,7 +98,7 @@ impl Chunk {
     /// The function follows what is to be expected from `read` A `Chunk`
     /// has an internal cursor which keeps track of what was read already:
     /// ```
-    /// # use raio::ll::chunk::Chunk;
+    /// # use raio::messaging::chunk::Chunk;
     /// let mut chunk = Chunk::new(5);
     /// chunk.write(&[1, 2, 3, 4, 5]);
     ///
@@ -132,7 +132,7 @@ impl Chunk {
     /// Writes a chunk as part of a bolt message, i.e. adds the size of the chunk at the beginning.
     /// This function is an asynchronous function.
     /// ```
-    /// # use raio::ll::chunk::Chunk;
+    /// # use raio::messaging::chunk::Chunk;
     /// # #[async_std::main]
     /// # async fn main() -> std::io::Result<()> {
     /// // create a chunk with ten 0's but capacity 13.
@@ -160,7 +160,7 @@ impl Chunk {
     /// as denoted. Sets the size of the `Chunk` to the read `u16`.
     /// This function is an asynchronous function.
     /// ```
-    /// # use raio::ll::chunk::Chunk;
+    /// # use raio::messaging::chunk::Chunk;
     /// # #[async_std::main]
     /// # async fn main() -> std::io::Result<()> {
     /// // a stream `1, 1, 1, -1` with a encoded size of `3` beforehand:

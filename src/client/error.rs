@@ -1,4 +1,4 @@
-use crate::ll::connection::ConnectionError;
+use crate::connectivity::connection::ConnectionError;
 use deadpool::managed::PoolError;
 use thiserror::Error;
 
@@ -8,20 +8,18 @@ pub enum ClientError {
     IOError(#[from] async_std::io::Error),
     #[error("Connection error: {0}")]
     ConnectionError(#[from] ConnectionError),
-    #[error("Cannot resolve endpoint")]
-    CannotResolveEndpoint,
     #[error("No field information in query response")]
     NoFieldInformation,
+    #[error("No qid information in query response")]
+    NoQidInformation,
     #[error("Connection pool timed out")]
     PoolTimeOut,
     #[error("The number of fields does not match the number of result columns.")]
     FieldsToRecordMismatch,
-    #[error("Received a failure '{0}': {1}")]
-    FailureResponse(String, String),
-    #[error("Commit Pull got ignored")]
-    CommitPullIgnored,
-    #[error("Cannot extract bookmark from auto commit")]
-    CannotExtractBookmarkFromAutoCommit,
+    #[error("Cannot extract bookmark from commit")]
+    NoBookmarkInformationInCommit,
+    #[error("Stream still open after PULL all from last.")]
+    StreamStillOpen,
 }
 
 impl From<PoolError<ConnectionError>> for ClientError {
@@ -32,4 +30,3 @@ impl From<PoolError<ConnectionError>> for ClientError {
         }
     }
 }
-

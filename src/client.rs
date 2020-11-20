@@ -1,23 +1,22 @@
 use auth::AuthMethod;
-use crate::ll::pool::Pool;
-use crate::ll::manager::Manager;
-use async_std::net::ToSocketAddrs;
-use crate::client::request::{Run, Pull};
-use crate::client::response::{Success, Response};
-use crate::client::query::Query;
-use crate::ll::connection::{ConnectionConfig};
-use crate::client::error::ClientError;
-use crate::client::auto_commit::AutoCommit;
 
-pub mod request;
-pub mod response;
+use crate::client::auto_commit::{AutoCommit, AutoCommitResult};
+use crate::client::error::ClientError;
+use crate::messaging::query::Query;
+use crate::client::record_result::RecordResult;
+use crate::client::transaction::Transaction;
+use crate::connectivity::connection::ConnectionConfig;
+use crate::connectivity::manager::Manager;
+use crate::connectivity::pool::Pool;
+use crate::connectivity::stream_result::StreamResult;
+use crate::messaging::commit_prepare::CommitPrepare;
+use crate::messaging::request::{Amount, Begin, Qid};
+
 pub mod auth;
-pub mod record_result;
-pub mod query;
 pub mod auto_commit;
 pub mod error;
-
-pub async fn open<A: AuthMethod>() {}
+pub mod record_result;
+pub mod transaction;
 
 pub struct Client {
     pool: Pool,
@@ -52,37 +51,63 @@ impl ClientConfig {
 }
 
 impl Client {
-    /// Creates a client by resolving the provided endpoint (blocks!) and initializes a connection
-    /// pool.
-    pub fn create<A: AuthMethod, T: ToSocketAddrs>(endpoint: T, auth: A, config: ClientConfig) -> Result<Self, ClientError> {
-        // resolves socket address:
-        let socket_addr =
-            async_std::task::block_on(async {
-                endpoint.to_socket_addrs().await
-            })?.next().ok_or(ClientError::CannotResolveEndpoint)?;
-
+    /// Creates a client, initializes a connection pool and connection manager, but does not connect
+    /// anything yet.
+    pub fn create<A: AuthMethod>(
+        endpoint: &str,
+        auth: A,
+        config: ClientConfig,
+    ) -> Self {
         // create pool manager:
-        let manager =
-            Manager::new(
-                socket_addr,
-                auth,
-                &config.agent_name,
-                &config.agent_version,
-                &config.connection_config,
-            );
+        let manager = Manager::new(
+            endpoint.to_owned(),
+            auth,
+            &config.agent_name,
+            &config.agent_version,
+            &config.connection_config,
+        );
 
         // create pool:
-        let pool =
-            Pool::new(manager, config.max_connections);
+        let pool = Pool::new(manager, config.max_connections);
 
-        Ok(Client {
-            pool
-        })
+        Client { pool }
     }
 
-    /// Creates an auto-commit which can be either further configured or committed to run the provided
-    /// query.
-    pub fn run(&mut self, query: Query) -> AutoCommit {
-        AutoCommit::create(&mut self.pool, query)
+    /// Runs the provided query as an auto-commit and returns a result.
+    pub async fn query<'a>(&self, query: &'a Query) -> Result<AutoCommitResult, ClientError> {
+        self.run(&<AutoCommit<'a>>::new(query)).await
+    }
+
+    /// Runs an `AutoCommit` which allows for commit preparation and is reusable.
+    pub async fn run<'a>(&self, auto_commit: &'a AutoCommit<'a>) -> Result<AutoCommitResult, ClientError> {
+        let mut connection = self.pool.get().await?;
+
+        // send a `RUN` and receive a `SUCCESS` containing the fields:
+        connection.send(auto_commit.request()).await?;
+        let mut stream_begin = connection.recv_success().await?;
+        let fields = stream_begin
+            .extract_fields()
+            .ok_or(ClientError::NoFieldInformation)?;
+
+        // Pull all from last and expect the stream end:
+        match connection.pull(Amount::All, Qid::Last).await? {
+            StreamResult::Finished(stream_end, records) => {
+                Ok(AutoCommitResult::new(&fields, stream_end, records)?)
+            }
+
+            _ => Err(ClientError::StreamStillOpen),
+        }
+    }
+
+    /// Opens a transaction by sending a `BEGIN` and receiving a `SUCCESS`. The created
+    /// transaction occupies a connection from the pool, hence *blocks* resources until it is
+    /// consumed.
+    pub async fn begin(&self, settings: CommitPrepare) -> Result<Transaction, ClientError> {
+        let mut connection = self.pool.get().await?;
+
+        connection.send(&Begin::new(settings)).await?;
+        connection.recv_success().await?;
+
+        Ok(Transaction::new(connection))
     }
 }

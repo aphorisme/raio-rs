@@ -13,9 +13,9 @@ async-std = "1.6.5"
 deadpool = "0.5.2"
 async-trait = "0.1.41"
 thiserror = "1.0.21"
-packs = { path = "../packs/packs", version = "0.1.0" }
-packs-proc = {path = "../packs/packs-proc", version = "0.1.0" }
+packs = { path = "../packs/packs", version = "0.2.0" }
+packs-proc = {path = "../packs/packs-proc", version = "0.2.0" }
 
 [dev-dependencies]
-packs = { path = "../packs/packs", version = "0.1.0" }
+packs = { path = "../packs/packs", version = "0.2.0" }
 async-std = { version = "1.6.5", features = ["attributes"] }

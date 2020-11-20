@@ -1,8 +1,7 @@
-use packs::*;
 use packs::std_structs::{StdStructPrimitive, StdStruct};
-use packs::value::{extract_list_ref, extract_list};
+use packs::*;
 
-#[derive(Debug, Clone, PartialEq, PackableStruct, Pack, Unpack)]
+#[derive(Debug, Clone, PartialEq, Unpack)]
 #[tag = 0x70]
 pub struct Success {
     pub metadata: Dictionary<StdStructPrimitive>
@@ -17,16 +16,12 @@ impl Success {
         self.metadata.extract_property("fields").and_then(extract_list)
     }
 
-    pub fn bookmark(&self) -> Option<&String> {
-        self.metadata.get_property_typed("bookmark")
+    pub fn extract_qid(&mut self) -> Option<i64> {
+        self.metadata.extract_property_typed("qid")
     }
 
-    pub fn has_bookmark(&self) -> bool {
-        self.metadata.has_property("bookmark")
-    }
-
-    pub fn qid(&self) -> Option<&i64> {
-        self.metadata.get_property_typed("qid")
+    pub fn into_raw_bookmark(mut self) -> Option<String> {
+        self.metadata.extract_property_typed("bookmark")
     }
 
     /// This denotes if there are more records to pull. According to spec, this defaults to
@@ -40,11 +35,11 @@ impl Success {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PackableStruct, Pack, Unpack)]
+#[derive(Debug, Clone, PartialEq, Unpack)]
 #[tag = 0x7E]
 pub struct Ignored {}
 
-#[derive(Debug, Clone, PartialEq, PackableStruct, Pack, Unpack)]
+#[derive(Debug, Clone, PartialEq, Unpack)]
 #[tag = 0x7F]
 pub struct Failure {
     metadata: Dictionary<StdStructPrimitive>,
@@ -60,13 +55,13 @@ impl Failure {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PackableStruct, Pack, Unpack)]
+#[derive(Debug, Clone, PartialEq, Unpack)]
 #[tag = 0x71]
 pub struct Record {
     pub data: Vec<Value<StdStruct>>,
 }
 
-#[derive(Debug, Clone, PartialEq, PackableStructSum, Pack, Unpack)]
+#[derive(Debug, Clone, PartialEq, Unpack)]
 pub enum Response {
     #[tag = 0x70]
     Success(Success),
@@ -76,13 +71,4 @@ pub enum Response {
     Failure(Failure),
     #[tag = 0x71]
     Record(Record),
-}
-
-impl Response {
-    pub fn is_success(&self) -> bool {
-        match self {
-            Response::Success(_) => true,
-            _ => false,
-        }
-    }
 }

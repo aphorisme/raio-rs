@@ -1,9 +1,9 @@
-use raio::ll::connection::{Connection, ConnectionConfig};
-use raio::ll::connection;
-use raio::ll::version::Version;
-use raio::client::request::{GoodBye, Run, Pull};
-use raio::client::response::Response;
-use packs::ExtractRef;
+use raio::connectivity::connection::{Connection, ConnectionConfig};
+use raio::connectivity::connection;
+use raio::connectivity::version::Version;
+use raio::messaging::response::Response;
+use packs::{ExtractRef, Value};
+use raio::messaging::request::{Run, Pull, GoodBye};
 
 #[async_std::test]
 /// 1. Opens a bolt connection,
@@ -32,12 +32,16 @@ pub async fn open_connection_query() -> Result<(), connection::ConnectionError> 
     connection.auth_hello("integrationtest_raio", "0.2.0", "basic", "neo4j", "mastertest").await?;
 
     // Send a query:
-    let mut run  = Run::new("RETURN $x as x, $y as y, $b as b");
-    run.param("x", 42);
-    run.param("y", -34882);
-    run.param("b", true);
+    let run  =
+        Run::new(
+            String::from("RETURN $x as x, $y as y, $b as b"),
+            vec!(
+                (String::from("x"), Value::Integer(42)),
+                (String::from("y"), Value::Integer(-34882)),
+                (String::from("b"), Value::Boolean(true))
+            ).into_iter().collect());
 
-    let written = connection.send(run).await?;
+    let written = connection.send(&run).await?;
     assert!(written > 0);
 
     let response = connection.recv::<Response>().await?;
@@ -53,12 +57,11 @@ pub async fn open_connection_query() -> Result<(), connection::ConnectionError> 
             assert!(
                 fields.contains(&&String::from("b")),
                 "Expected a SUCCESS with field 'b'");
-            assert!(suc.has_more());
         },
         _ => panic!("Expected SUCCESS but got {:?}", response),
     }
 
-    let written = connection.send(Pull::all_from_last()).await?;
+    let written = connection.send(&Pull::all_from_last()).await?;
     assert!(written > 0);
 
     let response = connection.recv::<Response>().await?;
@@ -82,7 +85,7 @@ pub async fn open_connection_query() -> Result<(), connection::ConnectionError> 
     }
 
     // close friendly with GOODBYE:
-    let written = connection.send(GoodBye {}).await?;
+    let written = connection.send(&GoodBye {}).await?;
     assert!(written > 0);
 
     Ok(())
