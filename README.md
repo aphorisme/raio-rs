@@ -1,4 +1,15 @@
 # raio
+
+[![Crates.io][crates-badge]][crates-url]
+[![Docs.io][docs-badge]][docs-url]
+
+
+[docs-badge]: https://docs.rs/raio/badge.svg
+[docs-url]: https://docs.rs/raio
+
+[crates-badge]: https://img.shields.io/crates/v/raio.svg
+[crates-url]: https://crates.io/crates/raio
+
 An opinionated async [Bolt protocol](https://7687.org/#bolt) client implementation written in Rust 🦀.
 
 | Supports Bolt Versions: | 4.1, 4.0 |
