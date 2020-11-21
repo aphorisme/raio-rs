@@ -34,33 +34,13 @@ pub struct Reset {}
 
 #[derive(Debug, Clone, PartialEq, Pack)]
 #[tag = 0x10]
-/// The `RUN` request in the context of a transaction.
-pub struct RunInTx {
-   query: String,
-   parameters: Dictionary<StdStruct>,
-   // meant to be empty, but a placeholder for the pack macro:
-   extra: Dictionary<StdStruct>,
-}
-
-impl RunInTx {
-   pub fn new(query: String, parameters: Dictionary<StdStruct>) -> Self {
-      RunInTx {
-         query,
-         parameters,
-         extra: Dictionary::new(),
-      }
-   }
-}
-
-#[derive(Debug, Clone, PartialEq, Pack)]
-#[tag = 0x10]
-/// The `RUN` request in the context of an Auto-Commit. It therefore carries the
-/// `CommitPrepare`.
+/// The `RUN` request in the context of an Auto-Commit or a Transaction. It references a
+/// `Query` and carries its settings.
 pub struct Run<'a> {
    #[pack(query_pack_flat)]
    #[fields = 2]
-   pub query: &'a Query,
-   pub extra: CommitPrepare,
+   query: &'a Query,
+   extra: CommitPrepare,
 }
 
 impl<'a> Run<'a> {

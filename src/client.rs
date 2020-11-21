@@ -3,14 +3,14 @@ use auth::AuthMethod;
 use crate::client::auto_commit::{AutoCommit, AutoCommitResult};
 use crate::client::error::ClientError;
 use crate::messaging::query::Query;
-use crate::client::record_result::RecordResult;
-use crate::client::transaction::Transaction;
 use crate::connectivity::connection::ConnectionConfig;
 use crate::connectivity::manager::Manager;
 use crate::connectivity::pool::Pool;
 use crate::connectivity::stream_result::StreamResult;
+use crate::messaging::request::{Amount, Qid, Begin};
+use crate::messaging::bookmark::Bookmark;
 use crate::messaging::commit_prepare::CommitPrepare;
-use crate::messaging::request::{Amount, Begin, Qid};
+use crate::client::transaction::Transaction;
 
 pub mod auth;
 pub mod auto_commit;
@@ -73,13 +73,8 @@ impl Client {
         Client { pool }
     }
 
-    /// Runs the provided query as an auto-commit and returns a result.
-    pub async fn query<'a>(&self, query: &'a Query) -> Result<AutoCommitResult, ClientError> {
-        self.run(&<AutoCommit<'a>>::new(query)).await
-    }
-
     /// Runs an `AutoCommit` which allows for commit preparation and is reusable.
-    pub async fn run<'a>(&self, auto_commit: &'a AutoCommit<'a>) -> Result<AutoCommitResult, ClientError> {
+    pub async fn run<'a>(&self, auto_commit: &AutoCommit<'a>) -> Result<AutoCommitResult, ClientError> {
         let mut connection = self.pool.get().await?;
 
         // send a `RUN` and receive a `SUCCESS` containing the fields:
@@ -99,15 +94,27 @@ impl Client {
         }
     }
 
-    /// Opens a transaction by sending a `BEGIN` and receiving a `SUCCESS`. The created
-    /// transaction occupies a connection from the pool, hence *blocks* resources until it is
-    /// consumed.
+    /// Runs the provided query as an auto-commit after the provided bookmark and returns a result.
+    pub async fn query_after(&self, query: &Query, before: Bookmark) -> Result<AutoCommitResult, ClientError> {
+        let mut auto_commit = AutoCommit::new(query);
+        auto_commit.prepare().add_bookmark(before);
+        self.run(&auto_commit).await
+    }
+
+    /// Runs the provided query as an auto-commit and returns a result.
+    pub async fn query(&self, query: &Query) -> Result<AutoCommitResult, ClientError> {
+        self.run(&AutoCommit::new(query)).await
+    }
+    
+    /// Opens a transaction with the provided settings.
     pub async fn begin(&self, settings: CommitPrepare) -> Result<Transaction, ClientError> {
         let mut connection = self.pool.get().await?;
-
+        
         connection.send(&Begin::new(settings)).await?;
-        connection.recv_success().await?;
-
-        Ok(Transaction::new(connection))
+        let _ = connection.recv_success().await?;
+        
+        Ok(Transaction {
+            connection
+        })
     }
 }

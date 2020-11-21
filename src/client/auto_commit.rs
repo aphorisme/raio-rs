@@ -21,9 +21,6 @@ use crate::client::error::ClientError;
 ///     .set_db("my_database")
 ///     .set_mode(Some(CommitMode::Read))
 ///     .set_timeout(Some(10));
-///
-/// assert_eq!(auto_commit.request().query, String::from("RETURN $x as x"));
-/// assert_eq!(auto_commit.request().extra.db, Some(String::from("my_database")));
 /// ```
 /// The `run` function of a [`Client`](crate::client::Client) runs an `AutoCommit`.
 pub struct AutoCommit<'a> {

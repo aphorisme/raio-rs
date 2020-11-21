@@ -2,8 +2,9 @@ use raio::connectivity::connection::{Connection, ConnectionConfig};
 use raio::connectivity::connection;
 use raio::connectivity::version::Version;
 use raio::messaging::response::Response;
-use packs::{ExtractRef, Value};
 use raio::messaging::request::{Run, Pull, GoodBye};
+use raio::messaging::query::Query;
+use packs::ExtractRef;
 
 #[async_std::test]
 /// 1. Opens a bolt connection,
@@ -32,14 +33,12 @@ pub async fn open_connection_query() -> Result<(), connection::ConnectionError> 
     connection.auth_hello("integrationtest_raio", "0.2.0", "basic", "neo4j", "mastertest").await?;
 
     // Send a query:
+    let mut query = Query::new("RETURN $x as x, $y as y, $b as b");
+    query.param("x", 42);
+    query.param("y", -34882);
+    query.param("b", true);
     let run  =
-        Run::new(
-            String::from("RETURN $x as x, $y as y, $b as b"),
-            vec!(
-                (String::from("x"), Value::Integer(42)),
-                (String::from("y"), Value::Integer(-34882)),
-                (String::from("b"), Value::Boolean(true))
-            ).into_iter().collect());
+        Run::new(&query);
 
     let written = connection.send(&run).await?;
     assert!(written > 0);
