@@ -1,3 +1,3 @@
-pub mod packing;
-
-pub mod net;
+pub mod connectivity;
+pub mod client;
+pub mod messaging;
