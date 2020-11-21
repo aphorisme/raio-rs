@@ -9,23 +9,61 @@ An opinionated async [Bolt protocol](https://7687.org/#bolt) client implementati
 ⚠️ This package has yet to proof to be largely bug free.
 
 ⚠️ Be aware, that this package is based upon the specification and not upon
-another driver.
+another driver. It is part of a bigger project, hence heavy changes might
+appear in the future and it is opinionated.
 
 The [packs](https://github.com/aphorisme/packs-rs) package drives the PackStream part.
 
-# Overview
+## Usage
 
+The high-level entry-point is `Client` which gives the functionality to run queries
+and open transactions. It comes with a connection pool the handle asynchronous
+actions.
 
-# Technical Overview
+````rust
+use raio::client::{Client, ClientConfig};
+use raio::client::auth::Basic;
+use raio::client::error::ClientError;
+use raio::messaging::query::Query;
 
-There is `Connection` which provides the low level runtime building 
-block, but does not implement any client logic. It provides the async
-functionality to connect to a bolt server, send requests and read
-responses. Among these low level functionalities, there is `Manager`
-and `Pool` as well. This level is based upon `deadpool` to provide
-a pool of connections for async handling.
+#[async_std::test]
+pub async fn auto_commit_simple() -> Result<(), ClientError> {
+    let auth = Basic::new("neo4j", "mastertest");
+    let client =
+        Client::create(
+            "localhost:7687",
+            auth,
+            ClientConfig::default("raio-rs-test", "0.2.0"));
 
-The high level entry point is `Client`. This does use a connection
-pool and the low level `Connection` to implement all client logic,
-e.g. transactions, queries, etc.
+    let mut query = Query::new("RETURN $x + 1 as x, $y as y, $b as b");
+    query.param("x", 1);
+    query.param("y", Some(String::from("Hello")));
+    query.param("b", true);
 
+    let result =
+        client
+            .query(&query)
+            .await
+            .expect("Error while querying.");
+
+    let first =
+        result
+            .records()
+            .first()
+            .expect("Expected at least one result");
+
+    assert_eq!(first.get_field_typed("x"), Some(&2));
+    assert_eq!(first.get_field_typed("y"), Some(&String::from("Hello")));
+    assert_eq!(first.get_field_typed("b"), Some(&true));
+
+    Ok(())
+}
+````
+
+## Contribution
+
+You are welcome to contribute! This package is still in its very early days,
+so there will be bugs to be discovered and fixed, testing is quite short,
+documentation is lacking. Since I will use this package in a bigger project,
+progress will be made eventually, but any help is appreciated to turn this into
+a usable and performant bolt driver.
